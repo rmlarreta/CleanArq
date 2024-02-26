@@ -1,4 +1,4 @@
-﻿using Infraestructure.Entities.Common;
+﻿using Domain.Entities.Common;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Dynamic.Core;
 using System.Linq.Expressions;

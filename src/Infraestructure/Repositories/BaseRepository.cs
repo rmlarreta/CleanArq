@@ -1,5 +1,5 @@
-﻿using Infraestructure.Entities.Common;
-using Infraestructure.Interfaces;
+﻿using Domain.Entities.Common;
+using Domain.Repositories;
 using Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Dynamic.Core;
@@ -11,26 +11,46 @@ namespace Infraestructure.Repositories
     {
         protected readonly DbContext _context;
         protected readonly DbSet<TEntity> _dbSet;
-
-        protected virtual IQueryable<TEntity> LoadRelations(IQueryable<TEntity> query)
-        {
-            return query;
-        }
-
         protected BaseRepository(DbContext context)
         {
             _context = context;
             _dbSet = context.Set<TEntity>();
         }
 
-        public virtual async Task<TEntity> Add(TEntity entity)
+        public async Task<TEntity> Add(TEntity entity)
         {
             return (await _dbSet.AddAsync(entity)).Entity;
         }
 
-        public virtual async Task AddRange(IEnumerable<TEntity> entities)
+        public async Task AddRange(IEnumerable<TEntity> entities)
         {
             await _dbSet.AddRangeAsync(entities);
+        }
+
+        public async Task<bool> Any(Expression<Func<TEntity, bool>> predicate)
+        {
+            return await ApplyFilter(_dbSet, predicate).AnyAsync();
+        }
+
+        public virtual async Task<int> Count()
+        {
+            return await ApplyFilter(_dbSet).CountAsync();
+        }
+
+        public async Task<int> Count(Expression<Func<TEntity, bool>> predicate)
+        {
+            return await ApplyFilter(_dbSet, predicate).CountAsync();
+        }
+
+        public async Task<TEntity> FirstOrDefault(Expression<Func<TEntity, bool>> predicate)
+        {
+            var result = await ApplyFilter(LoadRelations(_dbSet), predicate).FirstOrDefaultAsync();
+            return result ?? throw new Exception("Entity not found.");
+        }
+
+        public virtual async Task<IEnumerable<TEntity>> GetAll()
+        {
+            return await LoadRelations(_dbSet).ToListAsync();
         }
 
         public async Task<IEnumerable<TEntity>> GetAll(params Expression<Func<TEntity, bool>>[] predicates)
@@ -52,6 +72,22 @@ namespace Infraestructure.Repositories
             return await ApplyFilters(query, predicates).ToListAsync();
         }
 
+        public async Task<IEnumerable<TEntity>> GetAllAsNoTrack()
+        {
+            return await LoadRelations(_dbSet).AsNoTracking().ToListAsync();
+        }
+
+        public async Task<IEnumerable<TEntity>> GetAllAsNoTrack(params Expression<Func<TEntity, bool>>[] predicates)
+        {
+            return await ApplyFilters(LoadRelations(_dbSet), predicates).AsNoTracking().ToListAsync();
+        }
+
+        public async Task<IEnumerable<TEntity>> GetAllTop(Expression<Func<TEntity, bool>> predicate, int top)
+        {
+            var query = LoadRelations(_dbSet);
+            return await ApplyFilter(query, predicate).Take(top).ToListAsync();
+        }
+
         public async Task<IEnumerable<TEntity>> GetAllTop(IEnumerable<string> includes, Expression<Func<TEntity, bool>> predicate, int top)
         {
             var query = LoadRelations(_dbSet);
@@ -65,45 +101,24 @@ namespace Infraestructure.Repositories
             return await ApplyFilter(query, predicate).Take(top).ToListAsync();
         }
 
-        public async Task<IEnumerable<TEntity>> GetAllTop(Expression<Func<TEntity, bool>> predicate, int top)
-        {
-            var query = LoadRelations(_dbSet);
-            return await ApplyFilter(query, predicate).Take(top).ToListAsync();
-        }
-
-        public virtual async Task<IEnumerable<TEntity>> GetAll()
-        {
-            return await LoadRelations(_dbSet).ToListAsync();
-        }
-
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsNoTrack()
-        {
-            return await LoadRelations(_dbSet).AsNoTracking().ToListAsync();
-        }
-
-        public async Task<IEnumerable<TEntity>> GetAllAsNoTrack(params Expression<Func<TEntity, bool>>[] predicates)
-        {
-            return await ApplyFilters(LoadRelations(_dbSet), predicates).AsNoTracking().ToListAsync();
-        }
-
-        public virtual async Task<TEntity> Get(TIdentifier id)
+        public async Task<TEntity> Get(TIdentifier id)
         {
             var entity = await _dbSet.FindAsync(id) ?? throw new Exception($"Entity with ID {id} not found.");
             await LoadReferences(entity);
             return entity;
         }
 
-        public virtual async Task<PagingResult<TEntity>> GetPaged(int pageIndex, int pageSize, string sortExpression, string filterExpression)
+        public async Task<PagingResult<TEntity>> GetPaged(int pageIndex, int pageSize, string sortExpression, string filterExpression)
         {
             return await _dbSet.GetPaged(pageIndex, pageSize, sortExpression, filterExpression);
         }
 
-        public virtual async Task<PagingResult<TProjected>> GetPaged<TProjected>(int pageIndex, int pageSize, string sortExpression, string filterExpression, Expression<Func<TEntity, TProjected>> projection)
+        public async Task<PagingResult<TProjected>> GetPaged<TProjected>(int pageIndex, int pageSize, string sortExpression, string filterExpression, Expression<Func<TEntity, TProjected>> projection)
         {
             return await _dbSet.GetPaged(pageIndex, pageSize, sortExpression, filterExpression, projection);
         }
 
-        public virtual async Task<PagingResult<TProjected>> GetPaged<TProjected>(int pageIndex, int pageSize, string sortExpression, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TProjected>> projection)
+        public async Task<PagingResult<TProjected>> GetPaged<TProjected>(int pageIndex, int pageSize, string sortExpression, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TProjected>> projection)
         {
             return await _dbSet.GetPaged(pageIndex, pageSize, sortExpression, predicate, projection);
         }
@@ -115,7 +130,7 @@ namespace Infraestructure.Repositories
                 query = _dbSet.AsNoTracking();
 
             var result = await ApplyFilter(query, predicate).Select(projection).FirstOrDefaultAsync();
-            return result == null ? throw new Exception($"Entity not found.") : result;
+            return result == null ? throw new Exception("Entity not found.") : result;
         }
 
         public async Task<IEnumerable<TProjected>> GetProjectedMany<TProjected>(Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TProjected>> projection, bool noTracking = false)
@@ -126,6 +141,7 @@ namespace Infraestructure.Repositories
 
             return await ApplyFilter(query, predicate).Select(projection).ToListAsync();
         }
+
         public async Task<IEnumerable<TProjected>> GetProjectedOrderedMany<TProjected, TOrdered>(Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TProjected>> projection, Expression<Func<TEntity, TOrdered>> order, bool noTracking = false, bool orderAscending = true)
         {
             var query = _dbSet.AsQueryable();
@@ -154,28 +170,30 @@ namespace Infraestructure.Repositories
             return await ApplyFilter(query, predicate).OrderByDescending(order).Take(topRowSelected).Select(projection).ToListAsync();
         }
 
-        protected virtual Task<TEntity> LoadReferences(TEntity entity)
+        public void Remove(TEntity entity)
         {
-            return Task.FromResult(entity);
+            _dbSet.Remove(entity);
         }
 
-        protected IQueryable<T> ApplyFilters<T>(IQueryable<T> source, Expression<Func<T, bool>>[] filters) where T : Entity<TIdentifier>
+        public void Remove(TIdentifier id)
         {
-            if (filters != null)
-            {
-                foreach (var filter in filters)
-                {
-                    source = source.Where(filter);
-                }
-            }
+            var existing = _context.Find<TEntity>(id);
+            if (existing is not null) _dbSet.Remove(existing);
+        }
 
-            if (typeof(T).BaseType == typeof(Auditable))
-            {
-                source = source.Where("x => !x.DeletedDate.HasValue");
-            }
+        public void RemoveRange(IEnumerable<TEntity> entities)
+        {
+            _dbSet.RemoveRange(entities);
+        }
 
+        public void Update(TEntity entity)
+        {
+            _dbSet.Update(entity);
+        }
 
-            return source;
+        public void UpdateRange(IEnumerable<TEntity> entities)
+        {
+            _dbSet.UpdateRange(entities);
         }
 
         protected IQueryable<T> ApplyFilter<T>(IQueryable<T> source, Expression<Func<T, bool>> filter) where T : Entity<TIdentifier>
@@ -201,50 +219,32 @@ namespace Infraestructure.Repositories
             return source;
         }
 
-        public virtual void UpdateRange(IEnumerable<TEntity> entities)
+        protected IQueryable<T> ApplyFilters<T>(IQueryable<T> source, Expression<Func<T, bool>>[] filters) where T : Entity<TIdentifier>
         {
-            _dbSet.UpdateRange(entities);
-        }
-        public virtual void Update(TEntity entity)
-        {
-            _dbSet.Update(entity);
+            if (filters != null)
+            {
+                foreach (var filter in filters)
+                {
+                    source = source.Where(filter);
+                }
+            }
+
+            if (typeof(T).BaseType == typeof(Auditable))
+            {
+                source = source.Where("x => !x.DeletedDate.HasValue");
+            }
+
+            return source;
         }
 
-        public virtual void Remove(TEntity entity)
+        protected virtual IQueryable<TEntity> LoadRelations(IQueryable<TEntity> query)
         {
-            _dbSet.Remove(entity);
+            return query;
         }
 
-        public virtual void Remove(TIdentifier id)
+        protected virtual Task<TEntity> LoadReferences(TEntity entity)
         {
-            var existing = _context.Find<TEntity>(id);
-            if (existing != null) _dbSet.Remove(existing);
-        }
-
-        public virtual void RemoveRange(IEnumerable<TEntity> entities)
-        {
-            _dbSet.RemoveRange(entities);
-        }
-
-        public virtual async Task<TEntity> FirstOrDefault(Expression<Func<TEntity, bool>> predicate)
-        {
-            var result = await ApplyFilter(LoadRelations(_dbSet), predicate).FirstOrDefaultAsync();
-            return result ?? throw new Exception($"Entity not found.");
-        }
-
-        public virtual async Task<int> Count()
-        {
-            return await ApplyFilter(_dbSet).CountAsync();
-        }
-
-        public virtual async Task<int> Count(Expression<Func<TEntity, bool>> predicate)
-        {
-            return await ApplyFilter(_dbSet, predicate).CountAsync();
-        }
-
-        public virtual async Task<bool> Any(Expression<Func<TEntity, bool>> predicate)
-        {
-            return await ApplyFilter(_dbSet, predicate).AnyAsync();
+            return Task.FromResult(entity);
         }
     }
 }

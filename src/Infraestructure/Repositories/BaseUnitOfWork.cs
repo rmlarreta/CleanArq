@@ -1,8 +1,8 @@
-﻿using Infraestructure.Interfaces;
+﻿using Domain.Repositories;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
-using System.Data.SqlClient;
 
 namespace Infraestructure.Repositories
 {
@@ -10,6 +10,18 @@ namespace Infraestructure.Repositories
     {
         protected readonly DbContext _context = context;
         private IDbContextTransaction? _currentTransaction;
+
+        public void ClearContext()
+        {
+            var changedEntriesCopy = _context.ChangeTracker.Entries()
+           .Where(e => e.State == EntityState.Added ||
+                       e.State == EntityState.Modified ||
+                       e.State == EntityState.Deleted)
+           .ToList();
+
+            foreach (var entry in changedEntriesCopy)
+                entry.State = EntityState.Detached;
+        }
 
         public async Task<int> CommitAsync()
         {
@@ -32,19 +44,14 @@ namespace Infraestructure.Repositories
             }
         }
 
-        public void ClearContext()
+        public void Dispose()
         {
-            var changedEntriesCopy = _context.ChangeTracker.Entries()
-                .Where(e => e.State == EntityState.Added ||
-                            e.State == EntityState.Modified ||
-                            e.State == EntityState.Deleted)
-                .ToList();
+            _context.Dispose();
 
-            foreach (var entry in changedEntriesCopy)
-                entry.State = EntityState.Detached;
+            GC.SuppressFinalize(this);
         }
 
-        public async Task<T?> TransactionallyDo<T>(Func<Task<T>> asyncAction, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+        public async Task<T> TransactionallyDo<T>(Func<Task<T>> asyncAction, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
         {
             var initializedTransaction = false;
             if (_currentTransaction is null)
@@ -84,9 +91,9 @@ namespace Infraestructure.Repositories
         public async Task TransactionallyDo(Func<Task> asyncAction, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
         {
             var initializedTransaction = false;
-            if (this._currentTransaction == null)
+            if (_currentTransaction is null)
             {
-                this._currentTransaction = await _context.Database.BeginTransactionAsync(isolationLevel);
+                _currentTransaction = await _context.Database.BeginTransactionAsync(isolationLevel);
                 initializedTransaction = true;
             }
             try
@@ -108,6 +115,34 @@ namespace Infraestructure.Repositories
             {
                 await _currentTransaction.CommitAsync();
                 _currentTransaction = null;
+            }
+        }
+
+        public async Task<T> TransactionallyDo<T>(Func<Task<T>> asyncAction, bool useExecutionStrategy, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+        {
+            if (useExecutionStrategy)
+            {
+                var executionStrategy = _context.Database.CreateExecutionStrategy();
+                return await executionStrategy.ExecuteAsync(async () =>
+                {
+                    using var transaction = await _context.Database.BeginTransactionAsync(isolationLevel);
+                    try
+                    {
+                        var result = await asyncAction();
+                        await _context.SaveChangesAsync();
+                        await transaction.CommitAsync();
+                        return result;
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
+                });
+            }
+            else
+            {
+                return await TransactionallyDo(asyncAction, isolationLevel);
             }
         }
 
@@ -136,19 +171,6 @@ namespace Infraestructure.Repositories
             {
                 await TransactionallyDo(asyncAction, isolationLevel);
             }
-        }
-
-        public void Dispose()
-        {
-
-            Dispose(true);
-
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            _context.Dispose();
         }
     }
 }

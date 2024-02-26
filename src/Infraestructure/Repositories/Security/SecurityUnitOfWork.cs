@@ -1,16 +1,14 @@
 ﻿using Domain.Repositories.Security;
-using Infraestructure.Repositories;
-using Infraestructure.Repositories.Security;
+using Infraestructure.Data;
 
-namespace Infraestructure.Data
+namespace Infraestructure.Repositories.Security
 {
-    public class UnitOfWork(DefaultContext context) : BaseUnitOfWork(context), ISecurityUnitOfWork
+    public class SecurityUnitOfWork(DefaultContext context) : BaseUnitOfWork(context), ISecurityUnitOfWork
     {
         private IRoleRepository? _roles;
         private IUserRepository? _users;
         private IPermissionRepository? _permissions;
         private IModuleRepository? _modules;
-
 
         public IRoleRepository Roles => _roles ??= new RoleRepository(_context);
         public IUserRepository Users => _users ??= new UserRepository(_context);

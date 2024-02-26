@@ -1,4 +1,4 @@
-﻿using Infraestructure.Entities.Common;
+﻿using Domain.Entities.Common;
 using Infraestructure.Providers;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;

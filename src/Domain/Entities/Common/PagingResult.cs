@@ -1,4 +1,4 @@
-﻿namespace Infraestructure.Entities.Common
+﻿namespace Domain.Entities.Common
 {
     public class PagingResult<T> : PagingResultBase
     {

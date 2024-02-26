@@ -1,8 +1,8 @@
-﻿using Infraestructure.Dtos.Common;
-using Infraestructure.Entities.Common;
+﻿using Domain.Entities.Common;
+using Infraestructure.Dtos.Common;
 using System.Linq.Expressions;
 
-namespace Infraestructure.Interfaces
+namespace Infraestructure.Services.Contracts
 {
     public interface IService<TDto, TEntity, TIdentifier> where TDto : class where TEntity : Entity<TIdentifier>
     {
@@ -30,6 +30,5 @@ namespace Infraestructure.Interfaces
         Task Delete(TIdentifier id);
 
         Task<bool> Exists(TIdentifier identifier);
-
     }
 }
