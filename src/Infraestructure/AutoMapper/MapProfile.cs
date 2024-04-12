@@ -15,8 +15,7 @@ namespace Infraestructure.AutoMapper
            
             
             CreateMap<User, UserDto>()
-                .ForMember(q => q.RolesId, opt => opt.MapFrom(src => src.UserRoles != null ? src.UserRoles.Select(r => r.RoleId).ToList() : new List<int>()))                 
-                .IgnoreMember(i => i.PermissionsId)
+                .ForMember(q => q.RolesId, opt => opt.MapFrom(src => src.UserRoles != null ? src.UserRoles.Select(r => r.RoleId).ToList() : new List<int>()))    
                 .ReverseMap();
 
         }
